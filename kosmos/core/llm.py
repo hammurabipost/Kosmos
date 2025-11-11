@@ -20,6 +20,8 @@ except ImportError:
     HAS_ANTHROPIC = False
     print("Warning: anthropic package not installed. Install with: pip install anthropic")
 
+from kosmos.core.claude_cache import get_claude_cache, ClaudeCache
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,7 @@ class ClaudeClient:
         model: str = "claude-3-5-sonnet-20241022",
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        enable_cache: bool = True,
     ):
         """
         Initialize Claude client.
@@ -59,6 +62,7 @@ class ClaudeClient:
             model: Claude model to use (API mode only)
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature (0.0-1.0)
+            enable_cache: Enable response caching (default: True)
         """
         if not HAS_ANTHROPIC:
             raise ImportError(
@@ -76,6 +80,7 @@ class ClaudeClient:
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.enable_cache = enable_cache
 
         # Detect mode
         self.is_cli_mode = self.api_key.replace('9', '') == ''
@@ -88,10 +93,18 @@ class ClaudeClient:
             logger.error(f"Failed to initialize Anthropic client: {e}")
             raise
 
+        # Initialize cache
+        self.cache: Optional[ClaudeCache] = None
+        if self.enable_cache:
+            self.cache = get_claude_cache()
+            logger.info("Claude response caching enabled")
+
         # Usage statistics
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_requests = 0
+        self.cache_hits = 0
+        self.cache_misses = 0
 
     def generate(
         self,
@@ -100,6 +113,7 @@ class ClaudeClient:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         stop_sequences: Optional[List[str]] = None,
+        bypass_cache: bool = False,
     ) -> str:
         """
         Generate text from Claude.
@@ -110,6 +124,7 @@ class ClaudeClient:
             max_tokens: Override default max_tokens
             temperature: Override default temperature
             stop_sequences: Optional list of stop sequences
+            bypass_cache: Force bypass cache for this request
 
         Returns:
             str: Generated text from Claude
@@ -125,6 +140,35 @@ class ClaudeClient:
             ```
         """
         try:
+            # Check cache first (if enabled and not bypassed)
+            if self.cache and not bypass_cache:
+                cache_key_params = {
+                    'system': system or "",
+                    'max_tokens': max_tokens or self.max_tokens,
+                    'temperature': temperature or self.temperature,
+                    'stop_sequences': stop_sequences or [],
+                }
+
+                cached_response = self.cache.get(
+                    prompt=prompt,
+                    model=self.model,
+                    bypass=False,
+                    **cache_key_params
+                )
+
+                if cached_response is not None:
+                    # Cache hit!
+                    self.cache_hits += 1
+                    response_text = cached_response['response']
+                    logger.info(
+                        f"Cache hit ({cached_response.get('cache_hit_type', 'exact')}): "
+                        f"saved API call"
+                    )
+                    return response_text
+                else:
+                    # Cache miss
+                    self.cache_misses += 1
+
             # Build message
             messages = [{"role": "user", "content": prompt}]
 
@@ -146,6 +190,30 @@ class ClaudeClient:
 
             # Extract text
             text = response.content[0].text
+
+            # Cache the response (if caching enabled)
+            if self.cache and not bypass_cache:
+                metadata = {}
+                if hasattr(response, 'usage'):
+                    metadata = {
+                        'input_tokens': response.usage.input_tokens,
+                        'output_tokens': response.usage.output_tokens,
+                    }
+
+                cache_key_params = {
+                    'system': system or "",
+                    'max_tokens': max_tokens or self.max_tokens,
+                    'temperature': temperature or self.temperature,
+                    'stop_sequences': stop_sequences or [],
+                }
+
+                self.cache.set(
+                    prompt=prompt,
+                    model=self.model,
+                    response=text,
+                    metadata=metadata,
+                    **cache_key_params
+                )
 
             logger.debug(f"Generated {len(text)} characters from Claude")
             return text
@@ -253,19 +321,63 @@ class ClaudeClient:
             logger.error(f"Response text: {response_text[:500]}")
             raise ValueError(f"Claude did not return valid JSON: {e}")
 
-    def get_usage_stats(self) -> Dict[str, int]:
+    def get_usage_stats(self) -> Dict[str, Any]:
         """
-        Get usage statistics.
+        Get usage statistics including cache metrics.
 
         Returns:
-            dict: Statistics including total requests, input tokens, output tokens
+            dict: Statistics including requests, tokens, cost, and cache metrics
         """
-        return {
-            "total_requests": self.total_requests,
+        total_requests_with_cache = self.total_requests + self.cache_hits
+        cache_hit_rate = (
+            (self.cache_hits / total_requests_with_cache * 100)
+            if total_requests_with_cache > 0
+            else 0.0
+        )
+
+        # Calculate cost savings from cache
+        if self.cache and self.cache_hits > 0:
+            # Estimate average tokens per request
+            avg_input_tokens = (
+                self.total_input_tokens / self.total_requests
+                if self.total_requests > 0
+                else 1000
+            )
+            avg_output_tokens = (
+                self.total_output_tokens / self.total_requests
+                if self.total_requests > 0
+                else 500
+            )
+
+            # Estimate cost savings (API mode only)
+            if not self.is_cli_mode:
+                input_saved = (avg_input_tokens * self.cache_hits / 1_000_000) * 3.0
+                output_saved = (avg_output_tokens * self.cache_hits / 1_000_000) * 15.0
+                cost_saved = input_saved + output_saved
+            else:
+                cost_saved = 0.0  # CLI mode has no per-token cost
+        else:
+            cost_saved = 0.0
+
+        stats = {
+            "total_api_requests": self.total_requests,
+            "total_cache_hits": self.cache_hits,
+            "total_cache_misses": self.cache_misses,
+            "total_requests": total_requests_with_cache,
+            "cache_hit_rate_percent": round(cache_hit_rate, 2),
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "estimated_cost_usd": self._estimate_cost(),
+            "estimated_cost_saved_usd": round(cost_saved, 2),
+            "mode": "cli" if self.is_cli_mode else "api",
+            "cache_enabled": self.enable_cache,
         }
+
+        # Add detailed cache stats if available
+        if self.cache:
+            stats["cache_stats"] = self.cache.get_stats()
+
+        return stats
 
     def _estimate_cost(self) -> float:
         """
@@ -290,6 +402,8 @@ class ClaudeClient:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_requests = 0
+        self.cache_hits = 0
+        self.cache_misses = 0
 
 
 # Singleton instance for convenience
