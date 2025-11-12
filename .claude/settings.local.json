@@ -9,7 +9,10 @@
       "WebSearch",
       "Bash(find:*)",
       "Bash(pytest:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(pip show:*)",
+      "Bash(gh issue view:*)",
+      "Bash(env)"
     ],
     "deny": [],
     "ask": []

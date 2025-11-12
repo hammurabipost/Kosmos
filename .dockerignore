@@ -1,0 +1,109 @@
+# =============================================================================
+# Docker Ignore File for Kosmos AI Scientist
+# =============================================================================
+#
+# Excludes unnecessary files from Docker build context for:
+# - Faster builds (smaller context)
+# - Smaller final image
+# - Better security (no secrets in image)
+#
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/_build/
+docs/.doctrees/
+*.pdf
+
+# Examples and test data
+examples/
+kosmos-figures/
+test_data/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Logs and databases
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+cache/
+.cache/
+*.cache
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets/
+
+# Development
+.editorconfig
+.flake8
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+docker-compose.override.yml
+Dockerfile.dev
+.dockerignore
+
+# Misc
+*.md
+!README.md
+LICENSE
+CONTRIBUTING.md
+CHANGELOG.md
+TODO.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -2,19 +2,62 @@
 CRUD operations for database models.
 
 Provides high-level functions for creating, reading, updating, and deleting entities.
+
+Performance Optimizations:
+- Eager loading with joinedload() to prevent N+1 queries
+- Strategic use of indexes (defined in Alembic migrations)
+- Query result caching for frequently accessed data
 """
 
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import event, func
 from kosmos.db.models import (
     Experiment, Hypothesis, Result, Paper, AgentRecord, ResearchSession,
     ExperimentStatus, HypothesisStatus
 )
 from datetime import datetime
 import logging
+import time
 
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# QUERY PERFORMANCE MONITORING
+# ============================================================================
+
+def log_slow_queries(session_factory, threshold_ms: float = 100.0):
+    """
+    Log slow database queries for performance monitoring.
+
+    Args:
+        session_factory: SQLAlchemy session factory
+        threshold_ms: Threshold in milliseconds for slow query logging
+
+    Example:
+        >>> from kosmos.db import _engine
+        >>> log_slow_queries(_engine, threshold_ms=50.0)
+    """
+    @event.listens_for(session_factory, "after_cursor_execute")
+    def receive_after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        """Log queries that exceed threshold."""
+        if context.executemany:
+            return
+
+        duration_ms = (time.time() - context._query_start_time) * 1000
+
+        if duration_ms > threshold_ms:
+            logger.warning(
+                f"Slow query ({duration_ms:.2f}ms): {statement[:200]}"
+                + ("..." if len(statement) > 200 else "")
+            )
+
+    @event.listens_for(session_factory, "before_cursor_execute")
+    def receive_before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        """Record query start time."""
+        context._query_start_time = time.time()
 
 
 # ============================================================================
@@ -53,24 +96,57 @@ def create_hypothesis(
     return hypothesis
 
 
-def get_hypothesis(session: Session, hypothesis_id: str) -> Optional[Hypothesis]:
-    """Get hypothesis by ID."""
-    return session.query(Hypothesis).filter(Hypothesis.id == hypothesis_id).first()
+def get_hypothesis(session: Session, hypothesis_id: str, with_experiments: bool = False) -> Optional[Hypothesis]:
+    """
+    Get hypothesis by ID.
+
+    Args:
+        session: Database session
+        hypothesis_id: Hypothesis ID
+        with_experiments: If True, eager load associated experiments
+
+    Returns:
+        Hypothesis or None if not found
+    """
+    query = session.query(Hypothesis).filter(Hypothesis.id == hypothesis_id)
+
+    if with_experiments:
+        query = query.options(joinedload(Hypothesis.experiments))
+
+    return query.first()
 
 
 def list_hypotheses(
     session: Session,
     domain: Optional[str] = None,
     status: Optional[HypothesisStatus] = None,
-    limit: int = 100
+    limit: int = 100,
+    with_experiments: bool = False
 ) -> List[Hypothesis]:
-    """List hypotheses with optional filtering."""
+    """
+    List hypotheses with optional filtering.
+
+    Performance: Uses indexes on domain and status columns for fast filtering.
+
+    Args:
+        session: Database session
+        domain: Filter by domain
+        status: Filter by status
+        limit: Maximum results to return
+        with_experiments: If True, eager load associated experiments to prevent N+1 queries
+
+    Returns:
+        List of hypotheses
+    """
     query = session.query(Hypothesis)
 
     if domain:
         query = query.filter(Hypothesis.domain == domain)
     if status:
         query = query.filter(Hypothesis.status == status)
+
+    if with_experiments:
+        query = query.options(joinedload(Hypothesis.experiments))
 
     return query.order_by(Hypothesis.created_at.desc()).limit(limit).all()
 
@@ -126,24 +202,80 @@ def create_experiment(
     return experiment
 
 
-def get_experiment(session: Session, experiment_id: str) -> Optional[Experiment]:
-    """Get experiment by ID."""
-    return session.query(Experiment).filter(Experiment.id == experiment_id).first()
+def get_experiment(
+    session: Session,
+    experiment_id: str,
+    with_hypothesis: bool = True,
+    with_results: bool = False
+) -> Optional[Experiment]:
+    """
+    Get experiment by ID with optional eager loading.
+
+    Args:
+        session: Database session
+        experiment_id: Experiment ID
+        with_hypothesis: If True, eager load associated hypothesis (recommended)
+        with_results: If True, eager load associated results
+
+    Returns:
+        Experiment or None if not found
+
+    Performance:
+        - Uses primary key index for O(1) lookup
+        - Eager loading prevents N+1 queries when accessing relationships
+    """
+    query = session.query(Experiment).filter(Experiment.id == experiment_id)
+
+    if with_hypothesis:
+        query = query.options(joinedload(Experiment.hypothesis))
+    if with_results:
+        query = query.options(joinedload(Experiment.results))
+
+    return query.first()
 
 
 def list_experiments(
     session: Session,
     hypothesis_id: Optional[str] = None,
     status: Optional[ExperimentStatus] = None,
-    limit: int = 100
+    domain: Optional[str] = None,
+    limit: int = 100,
+    with_hypothesis: bool = False,
+    with_results: bool = False
 ) -> List[Experiment]:
-    """List experiments with optional filtering."""
+    """
+    List experiments with optional filtering and eager loading.
+
+    Performance:
+        - Uses composite index (domain, status) for fast filtering
+        - Eager loading prevents N+1 queries
+        - Created_at DESC uses idx_experiments_created_at
+
+    Args:
+        session: Database session
+        hypothesis_id: Filter by hypothesis ID
+        status: Filter by status
+        domain: Filter by domain
+        limit: Maximum results to return
+        with_hypothesis: If True, eager load associated hypotheses
+        with_results: If True, eager load associated results
+
+    Returns:
+        List of experiments
+    """
     query = session.query(Experiment)
 
     if hypothesis_id:
         query = query.filter(Experiment.hypothesis_id == hypothesis_id)
     if status:
         query = query.filter(Experiment.status == status)
+    if domain:
+        query = query.filter(Experiment.domain == domain)
+
+    if with_hypothesis:
+        query = query.options(joinedload(Experiment.hypothesis))
+    if with_results:
+        query = query.options(joinedload(Experiment.results))
 
     return query.order_by(Experiment.created_at.desc()).limit(limit).all()
 
@@ -214,17 +346,50 @@ def create_result(
     return result
 
 
-def get_result(session: Session, result_id: str) -> Optional[Result]:
-    """Get result by ID."""
-    return session.query(Result).filter(Result.id == result_id).first()
+def get_result(session: Session, result_id: str, with_experiment: bool = False) -> Optional[Result]:
+    """
+    Get result by ID.
+
+    Args:
+        session: Database session
+        result_id: Result ID
+        with_experiment: If True, eager load associated experiment
+
+    Returns:
+        Result or None if not found
+    """
+    query = session.query(Result).filter(Result.id == result_id)
+
+    if with_experiment:
+        query = query.options(joinedload(Result.experiment))
+
+    return query.first()
 
 
 def get_results_for_experiment(
     session: Session,
-    experiment_id: str
+    experiment_id: str,
+    with_experiment: bool = False
 ) -> List[Result]:
-    """Get all results for an experiment."""
-    return session.query(Result).filter(Result.experiment_id == experiment_id).all()
+    """
+    Get all results for an experiment.
+
+    Performance: Uses idx_results_experiment_id for fast filtering.
+
+    Args:
+        session: Database session
+        experiment_id: Experiment ID
+        with_experiment: If True, eager load associated experiment (usually not needed)
+
+    Returns:
+        List of results for the experiment
+    """
+    query = session.query(Result).filter(Result.experiment_id == experiment_id)
+
+    if with_experiment:
+        query = query.options(joinedload(Result.experiment))
+
+    return query.all()
 
 
 # ============================================================================
