@@ -2,10 +2,10 @@
 
 > Autonomous AI scientist for hypothesis generation, experimental design, and iterative scientific discovery. Supports Claude, OpenAI, and local models.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/your-org/kosmos)
-[![Status](https://img.shields.io/badge/status-production-blue.svg)](https://github.com/your-org/kosmos)
-[![Tests](https://img.shields.io/badge/tests-90%25%20coverage-blue.svg)](https://github.com/your-org/kosmos)
-[![Performance](https://img.shields.io/badge/performance-20--40×%20faster-blue.svg)](https://github.com/your-org/kosmos)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/jimmc414/Kosmos)
+[![Status](https://img.shields.io/badge/status-production-blue.svg)](https://github.com/jimmc414/Kosmos)
+[![Tests](https://img.shields.io/badge/tests-90%25%20coverage-blue.svg)](https://github.com/jimmc414/Kosmos)
+[![Performance](https://img.shields.io/badge/performance-20--40×%20faster-blue.svg)](https://github.com/jimmc414/Kosmos)
 
 Kosmos is an open-source implementation of an autonomous AI scientist that can conduct complete research cycles: from literature analysis and hypothesis generation through experimental design, execution, analysis, and iterative refinement.
 
@@ -139,8 +139,8 @@ Typical research run characteristics:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/kosmos-ai-scientist.git
-cd kosmos-ai-scientist
+git clone https://github.com/jimmc414/Kosmos.git
+cd Kosmos
 
 # Create virtual environment
 python3.11 -m venv venv
@@ -664,7 +664,7 @@ If you use Kosmos in your research, please cite:
   title={Kosmos AI Scientist: Autonomous Scientific Discovery with Claude},
   author={Kosmos Contributors},
   year={2025},
-  url={https://github.com/your-org/kosmos-ai-scientist}
+  url={https://github.com/jimmc414/Kosmos}
 }
 ```
 
@@ -676,9 +676,8 @@ If you use Kosmos in your research, please cite:
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/kosmos-ai-scientist/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/kosmos-ai-scientist/discussions)
-- **Discord**: [Join our community](https://discord.gg/your-invite)
+- **Issues**: [GitHub Issues](https://github.com/jimmc414/Kosmos/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/jimmc414/Kosmos/discussions)
 
 ---
 
