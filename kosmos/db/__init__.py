@@ -141,6 +141,11 @@ def init_from_config():
     """
     Initialize database from Kosmos configuration.
 
+    Automatically handles first-time setup:
+    - Creates .env file if missing
+    - Runs database migrations
+    - Creates all tables
+
     Example:
         ```python
         from kosmos.config import get_config
@@ -148,11 +153,36 @@ def init_from_config():
 
         init_from_config()
         ```
+
+    Raises:
+        RuntimeError: If database initialization fails critically
     """
     from kosmos.config import get_config
+    from kosmos.utils.setup import first_time_setup
 
     config = get_config()
+    # Use normalized URL to ensure consistent database location
+    database_url = config.database.normalized_url
+
+    logger.info(f"Initializing database at: {database_url}")
+
+    # Run first-time setup (creates .env, runs migrations)
+    setup_results = first_time_setup(database_url)
+
+    # Log any issues but don't fail unless critical
+    if setup_results["errors"]:
+        for error in setup_results["errors"]:
+            logger.warning(f"Setup warning: {error}")
+
+    # Initialize database connection
     init_database(
-        database_url=config.database.url,
+        database_url=database_url,
         echo=config.database.echo
     )
+
+    # Verify schema is complete (warn if not)
+    if not setup_results["schema_valid"]:
+        logger.warning(
+            "Database schema is incomplete. Some features may not work correctly. "
+            "Run 'kosmos doctor' for details."
+        )

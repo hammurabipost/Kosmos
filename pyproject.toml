@@ -148,6 +148,19 @@ where = ["."]
 include = ["kosmos*"]
 exclude = ["tests*", "docs*", "kosmos-figures*"]
 
+[tool.setuptools.package-data]
+"*" = [".env.example"]
+
+# Include important files in the distribution
+[tool.setuptools]
+include-package-data = true
+
+# Ensure .env.example is included in source distributions
+[tool.setuptools.data-files]
+"." = [".env.example", "alembic.ini"]
+"alembic" = ["alembic/**/*.py", "alembic/**/*.mako"]
+"alembic/versions" = ["alembic/versions/*.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]

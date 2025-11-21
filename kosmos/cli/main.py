@@ -102,8 +102,24 @@ def main(
         from kosmos.db import init_from_config
         init_from_config()
     except Exception as e:
-        if debug:
-            logger.warning(f"Could not initialize database: {e}")
+        # Always show database initialization errors to the user
+        error_msg = f"Database initialization failed: {e}"
+        logger.error(error_msg, exc_info=debug)
+
+        # Show user-friendly message
+        if not quiet:
+            print_error(
+                "Failed to initialize database. This may be due to:\n"
+                "  • Missing .env file (will be auto-created from .env.example)\n"
+                "  • Missing ANTHROPIC_API_KEY environment variable\n"
+                "  • Database connection issues\n\n"
+                f"Error: {str(e)}\n\n"
+                "Run with --debug for full error details.",
+                title="Database Initialization Error"
+            )
+
+        # Don't exit here - let commands handle the error if they need database
+        # Some commands (like --help, version) don't need database
 
     # Suppress console output if quiet mode
     if quiet:
@@ -247,15 +263,40 @@ def doctor():
     cache_ok = cache_dir.exists() and os.access(cache_dir, os.W_OK)
     checks.append(("Cache Directory", str(cache_dir), cache_ok))
 
-    # Check database
+    # Check database connection and schema
+    db_issues = []
     try:
         from kosmos.db import get_session
+        from kosmos.config import get_config
+        from kosmos.utils.setup import validate_database_schema
+
+        # Test connection
         with get_session() as session:
-            # Just open and close to verify connection
             pass
-        checks.append(("Database", "Connected", True))
-    except Exception:
-        checks.append(("Database", "Error", False))
+
+        # Validate schema completeness
+        config = get_config()
+        validation = validate_database_schema(config.database.normalized_url)
+
+        if validation["complete"]:
+            checks.append(("Database Connection", "Connected", True))
+            checks.append(("Database Schema", "Complete", True))
+        else:
+            checks.append(("Database Connection", "Connected", True))
+            checks.append(("Database Schema", "Incomplete", False))
+
+            # Track issues for detailed reporting
+            if validation["missing_tables"]:
+                db_issues.append(f"Missing tables: {', '.join(validation['missing_tables'])}")
+            if validation["missing_indexes"]:
+                db_issues.append(f"Missing indexes: {', '.join(validation['missing_indexes'])}")
+            if validation["errors"]:
+                db_issues.extend(validation["errors"])
+
+    except Exception as e:
+        checks.append(("Database Connection", f"Error: {str(e)}", False))
+        checks.append(("Database Schema", "Unknown", False))
+        db_issues.append(f"Connection failed: {e}")
 
     # Display results
     table = create_table(
@@ -270,6 +311,19 @@ def doctor():
 
     console.print(table)
     console.print()
+
+    # Show database issues if any
+    if db_issues:
+        console.print("[error]Database Issues Detected:[/error]")
+        for issue in db_issues:
+            console.print(f"  • {issue}")
+        console.print()
+        console.print("[warning]To fix database issues, try:[/warning]")
+        console.print("  1. Ensure .env file exists (will be auto-created)")
+        console.print("  2. Set ANTHROPIC_API_KEY environment variable")
+        console.print("  3. Run: [code]alembic upgrade head[/code]")
+        console.print("  4. Or reinstall: [code]make install[/code]")
+        console.print()
 
     # Overall status
     all_ok = all(check[2] for check in checks)

@@ -179,6 +179,39 @@ class DatabaseConfig(BaseSettings):
         """Check if using SQLite."""
         return self.url.startswith("sqlite")
 
+    @property
+    def normalized_url(self) -> str:
+        """
+        Get database URL with absolute path for SQLite.
+
+        For SQLite databases with relative paths, converts to absolute path
+        based on project root to ensure consistent database location regardless
+        of current working directory.
+
+        Returns:
+            str: Normalized database URL
+        """
+        if not self.is_sqlite:
+            return self.url
+
+        # Extract path from SQLite URL
+        # Format: sqlite:///path/to/db.db or sqlite:////absolute/path
+        if self.url.startswith("sqlite:///"):
+            db_path_str = self.url[10:]  # Remove "sqlite:///"
+
+            # Check if already absolute (starts with / on Unix or drive letter on Windows)
+            if db_path_str.startswith("/") or (len(db_path_str) > 1 and db_path_str[1] == ":"):
+                return self.url
+
+            # Convert relative path to absolute based on project root
+            project_root = Path(__file__).parent.parent
+            db_path = project_root / db_path_str
+            abs_path = db_path.resolve()
+
+            return f"sqlite:///{abs_path}"
+
+        return self.url
+
     model_config = SettingsConfigDict(populate_by_name=True)
 
 

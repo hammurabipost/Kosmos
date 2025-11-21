@@ -1,0 +1,6 @@
+# Include configuration template and database migration files in distribution
+include .env.example
+include alembic.ini
+recursive-include alembic *.py *.mako
+include README.md
+include LICENSE
